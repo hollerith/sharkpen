@@ -1,12 +1,15 @@
 import inspect
 import socket
 import signal
-
+import base64
 import json
 import re
 
+from subprocess import PIPE, Popen
+from Queue import Queue, Empty
 from threading import Thread
 from thread import *
+import traceback
 
 from bottle import Bottle, run, template, request, response, redirect, abort, static_file
 
@@ -23,10 +26,10 @@ from tee import *
 app = Bottle()
 app.install(PonyPlugin())
 
-LHOST, LPORT = '0.0.0.0', 9999
+LHOST, LPORT = '0.0.0.0', 9090
 buffer_size = 8192
 regex = '^((http[s]?|ftp):\/)?\/?([^:\/\s]+)(:([^\/]*))?((\/\w+)*\/)([\w\-\.]+[^#?\s]+)(\?([^#]*))?(#(.*))?$'
-msgjson = """
+jsonmsg = """
 {
     "type": "data",
     "path": "%s",
@@ -39,8 +42,14 @@ msgjson = """
 }
 """
 
-wsock = None
-proxy = ProxyServer('0.0.0.0', 9999)
+class Object(dict):
+    def __getattr__(self, name):
+        return self[name]
+
+wsock, tools = None, None
+settings = Object({ "phost": LHOST, "pport" : LPORT })
+
+proxy = ProxyServer(settings.phost, settings.pport)
 
 def login_required(fn):
     def check_user(**kwargs):
@@ -61,12 +70,137 @@ def secret():
     return 'supersecretsecret'
 
 def check_login(username, password):
-    if username == 'admin' and password == 'Administrator':
+    if username == 'admin' and password == secret():
         return True
 
-class Object(dict):
-    def __getattr__(self, name):
-        return self[name]
+def enqueue_output(out, queue):
+    for line in iter(out.readline, b''):
+        queue.put(line)
+    out.close()
+
+def runcmd(chan, command=None):
+    host = ''
+    if chan is None:
+        print('[-] Communication error - no web socket')
+        return
+
+    if command is None:
+        print('[-] Communication error - no command')
+        return
+
+    groups = re.match('^launch (.*) on (.*)$', command)
+    if groups:
+        tool = groups.group(1)
+        host = groups.group(2)
+        path = './private/'+tool+'.yaml'
+        if host != '(None)' and os.path.isfile(path):
+            command = ["bashful", "run", path]
+    else:
+        command = command.split() # go on - run naked you filthy animal
+
+    try:
+        p = Popen(command, env=dict(os.environ, HOST=host), stdout=PIPE, bufsize=1, close_fds=True)
+        q = Queue()
+        if host:
+            try:
+                output = open('/tmp/%s.log' % tool)
+            except:
+                pass
+        else:
+            output = p.stdout
+        t = Thread(target=enqueue_output, args=(output, q))
+        t.daemon = True
+        t.start()
+    except Exception as error:
+        chan.send({"type": "message", "text": trace(error)})
+        return
+
+    while t.isAlive():
+        try:
+            message = q.get_nowait() or q.get(timeout=1)
+            encoded = base64.b64encode(message)
+            chan.send('{ "type": "data", "text": "%s" }' % encoded)
+            print('{ "type": "data", "text": "%s" }' % message)
+        except Empty:
+            pass
+    chan.send({"type": "message", "text": '[+} *** job complete ***'})
+
+def trace(error):
+	exc_type, exc_obj, exc_tb = error
+	tb = traceback.extract_tb(exc_tb)[-1]
+	return "[33m%s : %s : %s[00m" % (exc_type, tb[2], tb[1])
+
+def debug(tamper):
+    global wsock, settings
+    print('[-] local tamper')
+    if tamper.data:
+        try:
+            line = tamper.data.split('\n')[0]
+            url = line.split(' ')[1]
+        except:
+            line = 'Encrypted'
+        lhost, lport = tamper.src.getpeername()
+        rhost, rport = tamper.dest.getpeername()
+
+        if wsock:
+            b64dump = base64.b64encode(tamper.dump)
+            action = tamper.action
+            message = jsonmsg % (line.strip(), action, lhost, lport, rhost, rport, b64dump)
+            wsock.send(message) # maybe encode this
+            print(message)
+
+def relay(conn, data):
+    global wsock
+    line = data.decode('utf-8').split('\n')[0]
+    url = line.split(' ')[1]
+    groups = re.match(regex, url)
+    host = groups.group(3)
+    port = groups.group(5) or 80
+
+    print(data)
+    b64dump = base64.b64encode(data.decode('utf-8'))
+    lhost, lport = conn.src.getpeername()
+    rhost, rport = conn.dest.getpeername()
+
+    if wsock:
+        message = jsonmsg % (line.strip(), 'Request', lhost, lport, rhost, rport, b64dump)
+        wsock.send(message) # maybe encode this
+
+    r = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    r.connect((host, port))
+    r.send(data)
+
+    reply = r.recv(buffer_size)  # Response
+    line = reply.split('\r')[0]
+    while reply:
+        try:
+            conn.send(reply)         # Client
+            reply = r.recv(buffer_size)  # Response
+        except:
+            break
+
+    b64dump = base64.b64encode(reply.decode('utf-8'))
+    lhost, lport = conn.dest.getpeername()
+    rhost, rport = conn.src.getpeername()
+
+    if wsock:
+        message = jsonmsg % (line.strip(), 'Response', lhost, lport, rhost, rport, b64dump)
+        wsock.send(message) # maybe encode this
+
+    r.close()
+    conn.close()
+
+def http_proxy():
+    # web proxy server
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((LHOST, LPORT))
+    s.listen(20)  # max 20 connections
+    print("[*] proxy listening on %s : %d \n" % (LHOST, LPORT))
+    while 1:
+        conn, addr = s.accept()       # Accept Connection From Client Browser
+        data = conn.recv(buffer_size) # Receive Client Data
+        start_new_thread(relay, (conn, data))
+    s.close()
 
 @app.route('/public/<filepath:path>')
 def server_static(filepath):
@@ -74,9 +208,9 @@ def server_static(filepath):
 
 @app.route('/')
 @login_required
-def index(user):
+def home(user):
     sites = select(s for s in Site if s.owner.id == user.id)[:]
-    return template('index', username=user.username, sites=sites)
+    return template('home', settings=settings, username=user.username, sites=sites)
 
 @app.route('/site/new')
 @login_required
@@ -135,25 +269,33 @@ def do_login():
     else:
         abort(401, "Sorry, access denied.")
 
-@app.route('/home')
-def home():
-    return template('home')
+def enqueue_output(out, queue):
+    for line in iter(out.readline, b''):
+        queue.put(line)
+    out.close()
 
-@app.route('/msgq')
-def handle_websocket():
-    global wsock
-    wsock = request.environ.get('wsgi.websocket')
-    if not wsock:
+@app.route('/test')
+def test():
+    return template('test')
+
+@app.route('/tools')
+def tools():
+    global tools
+    tools = request.environ.get('wsgi.websocket')
+    if not tools:
         abort(400, 'Expected WebSocket request.')
 
     while True:
         try:
-            message = wsock.receive()
-            wsock.send('{ "type": "message", "text": "%s" }' % message)
+            message = tools.receive()
+            if message ==  'Connected with command server':
+                tools.send('{ "type": "message", "text": "By your command" }')
+            else:
+                runcmd(tools, message)
         except WebSocketError:
             break
 
-@app.route('/attach')
+@app.route('/proxy')
 def attach_websocket():
     global wsock
     wsock = request.environ.get('wsgi.websocket')
@@ -167,23 +309,6 @@ def attach_websocket():
         except WebSocketError:
             break
 
-def debug(conn):
-    global wsock
-    print('[-] local tamper')
-    if conn.data:
-        try:
-            line = conn.data.split('\n')[0]
-            url = line.split(' ')[1]
-        except:
-            line = 'Encrypted'
-        lhost, lport = conn.src.getpeername()
-        rhost, rport = conn.dest.getpeername()
-
-        if wsock:
-            message = msgjson % (line.strip(), conn.action, lhost, lport, rhost, rport, conn.dump)
-            wsock.send(message) # maybe encode this
-            print(message)
-
 if __name__ == "__main__":
 
     # socks5 server
@@ -193,6 +318,6 @@ if __name__ == "__main__":
     tamper += debug   # first class overload
 
     # wsgi server
-    server = WSGIServer((LHOST, 9090), app, handler_class=WebSocketHandler)
-    print("[*] Sh4rkP3n listening on %s : %d \n" % (LHOST, 9090))
+    print("[*] Sh4rkP3n listen on %s : %d \n" % (LHOST, 9999))
+    server = WSGIServer((LHOST, 9999), app, handler_class=WebSocketHandler)
     server.serve_forever()

@@ -5,9 +5,9 @@ import socket
 from threading import Thread
 import sys
 import signal
-from hexdump import dumpgen
 import os
 
+from hexdump import dumpgen
 from datetime import datetime
 
 VER="\x05"
@@ -77,7 +77,7 @@ class Relay(Thread):
 					print("[-] transmission break")
 					tamper(self)
 				for hx in dumpgen(data):
-					self.dump += (hx)
+					self.dump += (hx + os.linesep)
 				self.data += data
 				self.dest.sendall(data)
 				data = self.src.recv(16)
@@ -154,7 +154,7 @@ class ProxyServer():
 		ws.send('{ "type": "message", "text": "Attached websocket" }')
 
 	def nuke(self, a, b):
-		os.system('fuser -k 9999/tcp')
+		os.system('fuser -k 9090/tcp')
 
 class overloadable(object):
 

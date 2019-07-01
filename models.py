@@ -6,7 +6,7 @@ from datetime import datetime
 from pony.converting import str2datetime
 from pony.orm import *
 
-db = Database("sqlite", "/tmp/test.sqlite", create_db=True)
+db = Database("sqlite", "./private/test.sqlite", create_db=True)
 
 class User(db.Entity):
     username = Required(str, unique=True)
