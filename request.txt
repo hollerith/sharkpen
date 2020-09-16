@@ -1,0 +1,14 @@
+GET / HTTP/1.1
+Host: juice-sh.op:3000
+Cache-Control: max-age=0
+DNT: 1
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate
+Accept-Language: en-GB,en-US;q=0.9,en;q=0.8
+Cookie: language=en; welcomebanner_status=dismiss; cookieconsent_status=dismiss; continueCode=yp3E4vq51K8xVBmnrQ6jgX0pltRUJTEiwaS8J0oeLPRzYla7J2DkM9OWZNwb; io=OkCRoOV2Ij-vCikmAAch
+If-None-Match: W/"785-1746f560420"
+If-Modified-Since: Tue, 08 Sep 2020 20:09:02 GMT
+Connection: close
+

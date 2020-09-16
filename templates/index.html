@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sh4rkP3n</title>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="description" content="" />
+
+    <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js" integrity="sha256-yr4fRk/GU1ehYJPAs8P4JlTgu0Hdsp4ZKrx8bDEDC3I=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cell/1.1.1/cell.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <script>
+        var socket = io.connect('http://' + document.domain + ':' + location.port + '/web', {
+            reconnection: true
+        });
+
+        // Components
+        var ProxyButton = {
+            "$type": "button",
+            "id": "button",
+            "$text": "Proxy Off",
+            _toggle: false,
+            onclick: function(){
+                this._toggle = !this._toggle
+                this.$text = this._toggle ? 'Proxy On' : 'Proxy Off';
+                socket.send('toggle proxy on/off')
+            }
+        }
+
+        var InterceptButton = {
+            "$type": "button",
+            "id": "button",
+            "$text": "Intercept On",
+            _toggle: false,
+            onclick: function(){
+                this._toggle = !this._toggle
+                this.$text = this._toggle ? 'Intercept On' : 'Intercept Off';
+                socket.send('toggle intercept on/off');
+            }
+        }
+
+        var Target =  {
+            $type: "input",
+            type: "text",
+            placeholder: "Enter target URL",
+            style: "width: 100%; outline:none; padding: 5px;",
+            $init: function(e) { this.focus() },
+            onkeyup: function(e) {
+                if (e.keyCode === 13) {
+                document.querySelector("#list")._add(this.value);
+                this.value = "";
+                }
+            }
+        }
+
+        var Status = {
+            id: 'status',
+            $type: 'div',
+            $text: 'Not running',
+            _set: function(value) { this.$text = value },
+        }
+
+        var DropdownList = {
+            "$type": "select",
+            "id": "color",
+            "$components": [
+                {
+                    "$type": "option",
+                    "value": "red",
+                    "$text": "red"
+                },
+                {
+                    "$type": "option",
+                    "value": "green",
+                    "$text": "green"
+                },
+                {
+                    "$type": "option",
+                    "value": "blue",
+                    "$text": "blue"
+                },
+            ]
+        };
+
+        var MessageList = {
+            $type: 'ol',
+            id: 'list',
+            _items: [],
+            $components: [],
+            _add: function(val) {
+                if (this._items.length > 9) { this._items.shift() };
+                this._items.push(val);
+            },
+            $update: function() {
+                this.$components = this._items.map(function(item) {
+                    return { $type: "li", $text: item.text }
+                })
+            }
+        };
+
+        var RequestsList = {
+            id: 'requests',
+            $type: 'ol',
+            class: "list",
+            _items: [],
+            $components: [],
+            _add: function(val) {
+                if (this._items.length > 14) { this._items.shift() };
+                this._items.push(val);
+            },
+            $update: function() {
+                this.$components = this._items.map(function(item) {
+                    return {
+                        $type: "li",
+                        $text: `${item.pid} ${item.text.replace(/[\x00-\x08\x0E-\x1F\x80-\xFF]/gi,'.')}`,
+                        _item: item,
+                        "onclick": function(e){
+                            document.querySelector("#request > div:nth-child(1)")._set(this._item.text);
+                            document.querySelector("#request > div:nth-child(2)")._set(this._item.raw);
+                        }
+                    }
+                })
+            }
+        };
+
+        var ResponsesList = {
+            id: 'responses',
+            $type: 'ol',
+            class: "list",
+            _items: [],
+            $components: [],
+            _add: function(val) {
+                if (this._items.length > 14) { this._items.shift() };
+                this._items.push(val);
+            },
+            $update: function() {
+                this.$components = this._items.map(function(item) {
+                    return {
+                        $type: "li",
+                        $text: `${item.pid} ${item.text.replace(/[\x00-\x08\x0E-\x1F\x80-\xFF]/gi,'.')}`,
+                        _item: item,
+                        "onclick": function(e){
+                            document.querySelector("#response > div:nth-child(1)")._set(this._item.text);
+                            document.querySelector("#response > div:nth-child(2)")._set(this._item.raw);
+                        }
+                    }
+                })
+            }
+        };
+
+        var Request = {
+            id: "request",
+            $type: "div",
+            class: "row",
+            style: "display: flex;",
+            $components: [
+                {
+                    $type: "div",
+                    class: "column box",
+                    style: "background-color: aliceblue;",
+                    contentEditable: "true",
+                    _set: function(value) { this.$text = value },
+                },
+                {
+                    $type: "div",
+                    class: "column box",
+                    style: "background-color: antiquewhite;",
+                    _set: function(value) { this.$text = value },
+                }
+            ]
+        }
+
+        var Response = {
+            id: "response",
+            $type: "div",
+            class: "row",
+            style: "display: flex;",
+            $components: [
+                {
+                    $type: "div",
+                    class: "column box",
+                    style: "background-color: aliceblue;",
+                    contentEditable: "true",
+                    _set: function(value) { this.$text = value },
+                },
+                {
+                    $type: "div",
+                    class: "column box",
+                    style: "background-color: antiquewhite;",
+                    _set: function(value) { this.$text = value },
+                }
+            ]
+        }
+
+        var root = {
+            "$type": "div",
+            "$cell": true,
+            "class": "tabs",
+            "$init": function(e) {
+
+                socket.on('connect', () => {
+                    console.log('Connected');
+                    document.querySelector('#status')._set('Connected');
+                });
+
+                socket.on('disconnect', () => {
+                    console.log('Disconnected');
+                });
+
+                socket.on('connect_error', (error) => {
+                    console.log('Connect error! ' + error);
+                });
+
+                socket.on('connect_timeout', (error) => {
+                    console.log('Connect timeout! ' + error);
+                });
+
+                socket.on('error', (error) => {
+                    console.log('Error! ' + error);
+                });
+
+                // Update list based on incoming data messages
+                socket.on('server2web', (message) => {
+                    if (message.direction == 'request') {
+                        document.querySelector("#requests")._add(message);
+                        document.querySelector("#request > div:nth-child(1)")._set(message.text);
+                        document.querySelector("#request > div:nth-child(2)")._set(message.raw);
+                    } else {
+                        document.querySelector("#responses")._add(message);
+                        document.querySelector("#response > div:nth-child(1)")._set(message.text);
+                        document.querySelector("#response > div:nth-child(2)")._set(message.raw);
+                    }
+                });
+            },
+            "$components": [
+                {
+                    "$type": "input",
+                    "type": "radio",
+                    "name": "tabs",
+                    "id": "tabone",
+                    "checked": "checked"
+                },
+                {
+                    "$type": "label",
+                    "for": "tabone",
+                    "$text": "Scope"
+                },
+                {
+                    "$type": "div",
+                    "class": "tab",
+                    "$components": [
+                        Target,
+                        {$type: "h5"},
+                        Status,
+                        {$type: "br"},
+                        MessageList,
+                        ProxyButton, InterceptButton,
+                        DropdownList
+                    ]
+                },
+                {
+                    "$type": "input",
+                    "type": "radio",
+                    "name": "tabs",
+                    "id": "tabtwo"
+                },
+                {
+                    "$type": "label",
+                    "for": "tabtwo",
+                    "$text": "Requests"
+                },
+                {
+                    "$type": "div",
+                    "class": "tab",
+                    "$components": [
+                        RequestsList,
+                        {$type: "hr"},
+                        Request
+                    ]
+                },
+                {
+                    "$type": "input",
+                    "type": "radio",
+                    "name": "tabs",
+                    "id": "tabthree"
+                },
+                {
+                    "$type": "label",
+                    "for": "tabthree",
+                    "$text": "Responses"
+                },
+                {
+                    "$type": "div",
+                    "class": "tab",
+                    "$components": [
+                        ResponsesList,
+                        {$type: "hr"},
+                        Response
+                    ]
+                }
+            ]
+        }
+
+    </script>
+</body>
+</html>

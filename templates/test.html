@@ -1,0 +1,71 @@
+<html>
+<script src="/static/js/cell.js"></script>
+<script>
+var el = {
+  id : 'root',
+  $cell: true,
+  style: "font-family: Helvetica; font-size: 14px;",
+  $components: [
+    {
+      $type: "input",
+      type: "text",
+      placeholder: "Type something and press enter",
+      style: "width: 100%; outline:none; padding: 5px;",
+      $init: function(e) { this.focus() },
+      onkeyup: function(e) {
+        if (e.keyCode === 13) {
+          document.querySelector("#list")._add(this.value);
+          this.value = "";
+        }
+      }
+    },
+    {
+      $type: "ol",
+      id: "list",
+      _items: [],
+      $components: [],
+      _add: function(val) { this._items.push(val) },
+      $update: function() {
+        this.$components = this._items.map(function(item) {
+          return { $type: "li", $text: item }
+        })
+      }
+    }
+  ]
+}
+        var button = {
+            $id: 'button',
+            $type: 'button',
+            $cell: true,
+            $text: 'Send',
+            $components: [],
+            onclick: function(e) {
+                e.stopPropagation();
+                document.querySelector("#list")._add("Blaha ha");
+            }            
+        };
+        
+        var input = {
+            $cell: true,
+            $id: "input",
+            $type: "input",
+            placeholder: "Type something and press enter",
+            style: "width: 100%; outline:none; padding: 5px;",
+            $init: function(e) { this.focus() },
+            onkeyup: function(e) {
+                if (e.keyCode === 13) {
+                document.querySelector("#list")._add(this.value);
+                this.value = "";
+                }
+            }
+        };
+
+
+</script>
+<body>
+    <div class='wrapper'>
+        <div id='root'>Lorem the ispsums</div>
+    </div>
+</body>
+
+</html>
