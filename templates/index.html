@@ -26,7 +26,7 @@
             onclick: function(){
                 this._toggle = !this._toggle
                 this.$text = this._toggle ? 'Proxy On' : 'Proxy Off';
-                socket.send('toggle proxy on/off')
+                socket.send('proxy on/off')
             }
         }
 
@@ -38,7 +38,7 @@
             onclick: function(){
                 this._toggle = !this._toggle
                 this.$text = this._toggle ? 'Intercept On' : 'Intercept Off';
-                socket.send('toggle intercept on/off');
+                socket.send('intercept on/off');
             }
         }
 

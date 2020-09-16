@@ -7,7 +7,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, async_mode=None, logger=False, engineio_logger=False)
 
-from proxy import run_proxy, toggle_intercept
+from proxy import run_proxy
 thread = Thread(target=run_proxy)
 thread_stop_event = Event()
 
@@ -39,15 +39,15 @@ def disconnect_proxy():
 @socketio.on('message', namespace='/web')
 def handle_web_message(message):
     print(f'[-] Web client says: {message}')
-    if (message == 'toggle intercept on/off'):
-        toggle_intercept()
+    if (message == 'proxy on/off'):
+        if thread_stop_event:
+            thread.start()
     else:
-        thread.start()
         socketio.emit('server2proxy', message, namespace='/proxy')
 
 @socketio.on('message', namespace='/proxy')
 def handle_proxy_message(message):
-    print(f'[-] proxy message stream {message["direction"]}')
+    #print(f'[-] proxy message stream {message["direction"]}')
     socketio.emit('server2web', message, namespace='/web')
 
 if __name__ == '__main__':

@@ -8,30 +8,37 @@ from socketserver import ThreadingMixIn, TCPServer, StreamRequestHandler
 from hexdump import dumpgen
 
 BUFF_SIZE = 0x1000 #4096
+INTERCEPT = True
 
 sio = socketio.Client()
 
 @sio.event
 def connect():
-    print('[+] Successfully connected to server.')
+    print('[+] Proxy socketio client successfully connected to server.')
 
 @sio.event
 def connect_error():
-    print('[+] Failed to connect to server.')
+    print('[*] Proxy socketio client failed to connect to server.')
 
 @sio.event
 def disconnect():
-    print('[+] Disconnected from server.')
+    print('[-] Proxy socketio client has disconnected from server.')
+
+@sio.event(namespace='/proxy')
+def server2proxy(data):
+    print(f'[+] Proxy socketio client received data: \n {data}')
+    if (data == 'intercept on/off'):
+        toggle_intercept()
 
 @sio.event
-def my_message(data):
-    print('message received with ', data)
-    sio.emit('proxy2server', {'response': 'my response'})
+def multi(message):
+    pass
 
 class ThreadingTCPServer(ThreadingMixIn, TCPServer):
     allow_reuse_address = True
 
 class SocksProxy(StreamRequestHandler):
+    global INTERCEPT
 
     RELAYTIMEOUT=500
 
@@ -45,8 +52,6 @@ class SocksProxy(StreamRequestHandler):
     SOCKS_ADDR_IPv4 = 1
     SOCKS_ADDR_DOMAIN = 3
 
-    INTERCEPT = True
-
     def receive(self, size):
         ret = b''
         while len(ret) < size:
@@ -58,12 +63,12 @@ class SocksProxy(StreamRequestHandler):
         return ret
 
     def stream(self, pid, direction, data):
-        if self.INTERCEPT:
-            print(f'[+] From {pid} sending {direction} proxy data ')
+        if INTERCEPT:
+            #print(f'[+] From {pid} sending {direction} proxy data ')
             text = data.decode('UTF-8','backslashreplace')
             dump = os.linesep.join([x for x in dumpgen(data)])
-            print(f"\n\x1b[32mData:\n{text}\x1b[0m")
-            print(f"\x1b[33m{dump}\x1b[0m")
+            #print(f"\n\x1b[32mData:\n{text}\x1b[0m")
+            #print(f"\x1b[33m{dump}\x1b[0m")
             message = {'pid': pid, 'direction': direction, 'raw': dump, 'text': text}
             sio.emit('message', message, namespace='/proxy')
 
@@ -172,8 +177,9 @@ class SocksProxy(StreamRequestHandler):
                 if client.send(data) <= 0: break
                 self.stream(self.client_address[1], 'response', data)
 
-    def toggle_intercept(self):
-        self.INTERCEPT = not self.INTERCEPT
+def toggle_intercept():
+    global INTERCEPT
+    INTERCEPT = not INTERCEPT
 
 def run_proxy(host='127.0.0.1', port=1080):
     print(f'[+] Connecting to websocket http://{host}:5000/proxy \n')
