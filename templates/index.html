@@ -21,11 +21,11 @@
         var ProxyButton = {
             "$type": "button",
             "id": "button",
-            "$text": "Proxy Off",
+            "$text": "Proxy On",
             _toggle: false,
             onclick: function(){
                 this._toggle = !this._toggle
-                this.$text = this._toggle ? 'Proxy On' : 'Proxy Off';
+                this.$text = this._toggle ? 'Proxy Off' : 'Proxy On';
                 socket.send('proxy on/off')
             }
         }
@@ -33,11 +33,11 @@
         var InterceptButton = {
             "$type": "button",
             "id": "button",
-            "$text": "Intercept On",
+            "$text": "Intercept Off",
             _toggle: false,
             onclick: function(){
                 this._toggle = !this._toggle
-                this.$text = this._toggle ? 'Intercept On' : 'Intercept Off';
+                this.$text = this._toggle ? 'Intercept Off' : 'Intercept On';
                 socket.send('intercept on/off');
             }
         }

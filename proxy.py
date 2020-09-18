@@ -1,4 +1,4 @@
-import os, sys, select, socket
+import os, sys, select, socket, ssl, re
 import time
 import base64
 import socketio
@@ -7,7 +7,7 @@ from struct import pack, unpack
 from socketserver import ThreadingMixIn, TCPServer, StreamRequestHandler
 from hexdump import dumpgen
 
-BUFF_SIZE = 0x1000 #4096
+BUFF_SIZE = 0x8000
 INTERCEPT = True
 
 sio = socketio.Client()
@@ -52,6 +52,52 @@ class SocksProxy(StreamRequestHandler):
     SOCKS_ADDR_IPv4 = 1
     SOCKS_ADDR_DOMAIN = 3
 
+    # tls/ssl stripping
+    TLS_VERSIONS = {
+        # SSL
+        b'\x00\x02':"SSL_2_0",
+        b'\x03\x00':"SSL_3_0",
+        # TLS
+        b'\x03\x01':"TLS_1_0",
+        b'\x03\x02':"TLS_1_1",
+        b'\x03\x03':"TLS_1_2",
+        b'\x03\x04':"TLS_1_3",
+    }
+
+    """
+    enum {
+        change_cipher_spec(20), alert(21), handshake(22), application_data(23), (255)
+    } ContentType;
+    """
+    TLS_CONTENT_TYPES = {
+        20: "DOWNGRADE",
+        21: "ALERT",
+        22: "HANDSHAKE",
+        23: "APPLICATION_DATA",
+    }
+
+    SSLv2_PREAMBLE = 0x80
+    SSLv2_CONTENT_TYPE_CLIENT_HELLO = 0x01
+
+    def getTLS(self, data):
+        version = False
+        if data[0] & self.SSLv2_PREAMBLE \
+            and data[2]==self.SSLv2_CONTENT_TYPE_CLIENT_HELLO \
+            and data[3:3+2] in self.TLS_VERSIONS:
+            version = self.TLS_VERSIONS.get(data[3:3+2])
+        elif self.TLS_CONTENT_TYPES.get(data[0]) == 'HANDSHAKE' and data[1:1+2] in self.TLS_VERSIONS:
+            version = self.TLS_VERSIONS.get(data[1:1+2])
+        elif self.TLS_CONTENT_TYPES.get(data[0]) == 'DOWNGRADE' and data[1:1+2] in self.TLS_VERSIONS:
+            version = f'Downgrading {self.TLS_VERSIONS.get(data[1:1+2])}'
+        elif self.TLS_CONTENT_TYPES.get(data[0]) == 'APPLICATION_DATA' and data[1:1+2] in self.TLS_VERSIONS:
+            version = f'Application Data {self.TLS_VERSIONS.get(data[1:1+2])}'
+        elif self.TLS_CONTENT_TYPES.get(data[0]) == 'ALERT' and data[1:1+2] in self.TLS_VERSIONS:
+            version = f'Alert {self.TLS_VERSIONS.get(data[1:1+2])}'
+        else:
+            self.log('Unidentified binary segment')
+
+        return version
+
     def receive(self, size):
         ret = b''
         while len(ret) < size:
@@ -64,11 +110,16 @@ class SocksProxy(StreamRequestHandler):
 
     def stream(self, pid, direction, data):
         if INTERCEPT:
-            #print(f'[+] From {pid} sending {direction} proxy data ')
-            text = data.decode('UTF-8','backslashreplace')
+            #self.log(f'[+] From {pid} sending {direction} proxy data ')
+            if (re.match("[\x00-\x08\x0E-\x1F\x80-\xFF]", ''.join(map(chr, data)))):
+                text = ''.join(map(chr, data))
+                version = self.getTLS(data)
+                if version:
+                    text = f"{version} encrypted data "
+            else:
+                text = data.decode('UTF-8','backslashreplace')
+
             dump = os.linesep.join([x for x in dumpgen(data)])
-            #print(f"\n\x1b[32mData:\n{text}\x1b[0m")
-            #print(f"\x1b[33m{dump}\x1b[0m")
             message = {'pid': pid, 'direction': direction, 'raw': dump, 'text': text}
             sio.emit('message', message, namespace='/proxy')
 
@@ -156,6 +207,7 @@ class SocksProxy(StreamRequestHandler):
         self.log('Connection closed')
 
     def exchange_loop(self, client, remote):
+
         while True:
             # wait until client or remote is available for read
             stdin, stdout, stderr = select.select([ client, remote ], [], [])
